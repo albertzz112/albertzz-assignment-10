@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Interface</title>
+</head>
+<body>
+    <h1>Search Interface</h1>
+    <form method="post" enctype="multipart/form-data">
+        <label>Query Type:</label><br>
+        <input type="radio" name="query_type" value="text" required> Text Query<br>
+        <input type="radio" name="query_type" value="image"> Image Query<br>
+        <input type="radio" name="query_type" value="hybrid"> Hybrid Query<br><br>
+
+        <label for="text_query">Text Query:</label>
+        <input type="text" name="text_query" id="text_query"><br>
+
+        <label for="image_query">Image Query:</label>
+        <input type="file" name="image_query" id="image_query" accept="image/*"><br>
+
+        <label for="weight">Hybrid Weight (0.0 - 1.0):</label>
+        <input type="number" name="weight" id="weight" step="0.1" value="0.5"><br><br>
+
+        <button type="submit">Search</button>
+    </form>
+</body>
+</html>

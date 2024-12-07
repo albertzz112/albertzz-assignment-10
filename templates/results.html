@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Search Results</title>
+</head>
+<body>
+    <h1>Search Results</h1>
+    <ul>
+        {% for file_name, score in results %}
+            <li>
+                <img src="{{ dataset_dir }}/{{ file_name }}" alt="Image" style="width:200px;"><br>
+                Similarity Score: {{ score }}
+            </li>
+        {% endfor %}
+    </ul>
+    <a href="/">Go Back</a>
+</body>
+</html>
