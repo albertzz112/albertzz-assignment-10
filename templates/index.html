@@ -2,26 +2,52 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search Interface</title>
 </head>
 <body>
     <h1>Search Interface</h1>
     <form method="post" enctype="multipart/form-data">
+        <!-- Query Type -->
         <label>Query Type:</label><br>
         <input type="radio" name="query_type" value="text" required> Text Query<br>
         <input type="radio" name="query_type" value="image"> Image Query<br>
         <input type="radio" name="query_type" value="hybrid"> Hybrid Query<br><br>
 
-        <label for="text_query">Text Query:</label>
-        <input type="text" name="text_query" id="text_query"><br>
+        <!-- Text Query -->
+        <label for="text_query">Text Query:</label><br>
+        <input type="text" name="text_query" id="text_query"><br><br>
 
-        <label for="image_query">Image Query:</label>
-        <input type="file" name="image_query" id="image_query" accept="image/*"><br>
+        <!-- Image Query -->
+        <label for="image_query">Image Query:</label><br>
+        <input type="file" name="image_query" id="image_query" accept="image/*"><br><br>
 
-        <label for="weight">Hybrid Weight (0.0 - 1.0):</label>
-        <input type="number" name="weight" id="weight" step="0.1" value="0.5"><br><br>
+        <!-- Hybrid Weight -->
+        <label for="hybrid_weight">Hybrid Weight (0.0 - 1.0):</label><br>
+        <input type="number" name="hybrid_weight" id="hybrid_weight" step="0.1" value="0.5"><br><br>
 
+        <!-- PCA Options -->
+        <label for="use_pca">Use PCA:</label>
+        <input type="checkbox" name="use_pca" id="use_pca"><br><br>
+
+        <label for="k_principal_components">Number of Principal Components:</label><br>
+        <input type="number" name="k_principal_components" id="k_principal_components" min="1" value="50"><br><br>
+
+        <!-- Submit -->
         <button type="submit">Search</button>
     </form>
+
+    <!-- Display Results -->
+    {% if results %}
+        <h2>Search Results</h2>
+        <ul>
+            {% for result in results %}
+                <li>
+                    <img src="{{ result.file_name }}" alt="Image" style="width: 200px; height: auto;">
+                    <p>Similarity: {{ result.similarity }}</p>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
 </body>
 </html>
