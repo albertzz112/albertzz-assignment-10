@@ -1,69 +1,93 @@
-from flask import Flask, request, render_template
+from flask import Flask, render_template, request, url_for
+import os
 import pandas as pd
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from open_clip import create_model_and_transforms, get_tokenizer
-import os
+import open_clip
+from sklearn.decomposition import PCA
+import numpy as np
 
-# Initialize Flask app
+# Initialize the Flask app
 app = Flask(__name__)
 
-# Configuration
-DATASET_DIR = "static/coco_images_resized"
-EMBEDDINGS_FILE = "image_embeddings.pickle"
-model, _, preprocess = create_model_and_transforms('ViT-B-32', pretrained='openai')
-tokenizer = get_tokenizer('ViT-B-32')
+# Load the pre-trained CLIP model and image embeddings
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')
+model = model.to(device)
 model.eval()
-embeddings_df = pd.read_pickle(EMBEDDINGS_FILE)
 
-# Utility function for similarity calculation
-def calculate_similarities(query_embedding, top_k=5):
-    similarities = [
-        F.cosine_similarity(query_embedding, torch.tensor(row['embedding']).unsqueeze(0)).item()
-        for _, row in embeddings_df.iterrows()
-    ]
-    top_indices = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)[:top_k]
-    return [(embeddings_df.iloc[i]['file_name'], similarities[i]) for i in top_indices]
+# Load image embeddings
+EMBEDDINGS_FILE = "image_embeddings.pickle"
+IMAGES_FOLDER = "static/coco_images_resized"  # Make sure images are under the static folder
+df = pd.read_pickle(EMBEDDINGS_FILE)
 
-@app.route('/', methods=['GET', 'POST'])
-def search():
-    if request.method == 'POST':
-        query_type = request.form.get('query_type')
-        top_k = 5
-        results = []
+# Perform PCA on the embeddings (first 10,000 for efficiency)
+all_embeddings = np.vstack(df["embedding"].values)[:10000]
+pca_model = PCA()
+pca_model.fit(all_embeddings)
 
-        if query_type == 'text':
-            text_query = request.form['text_query']
-            tokenized_text = tokenizer([text_query])
-            query_embedding = F.normalize(model.encode_text(tokenized_text), p=2, dim=-1)
-            results = calculate_similarities(query_embedding, top_k)
-        
-        elif query_type == 'image':
-            image_file = request.files['image_query']
-            image = Image.open(image_file)
-            processed_image = preprocess(image).unsqueeze(0)
-            query_embedding = F.normalize(model.encode_image(processed_image), p=2, dim=-1)
-            results = calculate_similarities(query_embedding, top_k)
-        
-        elif query_type == 'hybrid':
-            image_file = request.files['image_query']
-            text_query = request.form['text_query']
-            weight = float(request.form['weight'])
+@app.route("/", methods=["GET", "POST"])
+def index():
+    results = []
+    if request.method == "POST":
+        query_type = request.form.get("query_type")
+        hybrid_weight = float(request.form.get("hybrid_weight", 0.5))
+        use_pca = request.form.get("use_pca") == "on"
+        k_principal_components = int(request.form.get("k_principal_components", 50))
 
-            image = Image.open(image_file)
-            processed_image = preprocess(image).unsqueeze(0)
-            image_embedding = F.normalize(model.encode_image(processed_image), p=2, dim=-1)
+        # Handle text query
+        if query_type == "text" or query_type == "hybrid":
+            text_query = request.form.get("text_query")
+            tokenizer = open_clip.get_tokenizer('ViT-B-32')
+            text_embedding = F.normalize(model.encode_text(tokenizer([text_query])).to(device), p=2, dim=-1)
 
-            tokenized_text = tokenizer([text_query])
-            text_embedding = F.normalize(model.encode_text(tokenized_text), p=2, dim=-1)
+        # Handle image query
+        if query_type == "image" or query_type == "hybrid":
+            image_file = request.files.get("image_query")
+            if image_file:
+                image = preprocess(Image.open(image_file).convert("RGB")).unsqueeze(0).to(device)
+                image_embedding = model.encode_image(image).detach().cpu().numpy()
 
-            hybrid_embedding = F.normalize(weight * text_embedding + (1 - weight) * image_embedding, p=2, dim=-1)
-            results = calculate_similarities(hybrid_embedding, top_k)
-        
-        return render_template('results.html', results=results, dataset_dir=DATASET_DIR)
+                # Apply PCA when selected
+                if use_pca:
+                    image_embedding = pca_model.transform(image_embedding)[:, :k_principal_components]
 
-    return render_template('index.html')
+                image_embedding = torch.tensor(image_embedding, device=device)
+                image_embedding = F.normalize(image_embedding, p=2, dim=-1)
 
-if __name__ == '__main__':
+        # Combine image and text embeddings if hybrid
+        if query_type == "hybrid" and image_file and text_query:
+            query_embedding = F.normalize(hybrid_weight * text_embedding + (1 - hybrid_weight) * image_embedding, p=2, dim=-1)
+        elif query_type == "text":
+            query_embedding = text_embedding
+        elif query_type == "image":
+            query_embedding = image_embedding
+
+        # Compute cosine similarities
+        if query_embedding is not None:
+            if use_pca:
+                # Apply PCA to database embeddings
+                database_embeddings = np.vstack(df["embedding"].values)
+                reduced_embeddings = pca_model.transform(database_embeddings)[:, :k_principal_components]
+                reduced_embeddings = torch.tensor(reduced_embeddings, device=device)
+            else:
+                # Use original embeddings
+                reduced_embeddings = torch.tensor(np.vstack(df["embedding"].values), device=device)
+
+            # Normalize database embeddings
+            reduced_embeddings = F.normalize(reduced_embeddings, p=2, dim=-1)
+
+            # Calculate similarities
+            cos_similarities = torch.matmul(query_embedding, reduced_embeddings.T).squeeze(0).tolist()
+
+        # Retrieve top 5 results
+        top_indices = torch.topk(torch.tensor(cos_similarities), 5).indices
+        top_indices = top_indices.tolist()  # Convert tensor to list of integers
+        results = [{"file_name": os.path.join(IMAGES_FOLDER, df.iloc[idx]["file_name"]), "similarity": cos_similarities[idx]} for idx in top_indices]
+
+    return render_template("index.html", results=results)
+
+
+if __name__ == "__main__":
     app.run(debug=True)
